@@ -1,3 +1,4 @@
+use crate::Error;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -27,6 +28,14 @@ impl Socket {
     #[cfg(unix)]
     pub(crate) fn new_unix(stream: UnixStream) -> Socket {
         Socket(Inner::Unix(stream))
+    }
+
+    #[doc(hidden)]
+    pub fn __private_api_from_std(stream: std::net::TcpStream) -> Result<Socket, Error> {
+        stream.set_nonblocking(true).map_err(Error::connect)?;
+        TcpStream::from_std(stream)
+            .map(Socket::new_tcp)
+            .map_err(Error::connect)
     }
 }
 

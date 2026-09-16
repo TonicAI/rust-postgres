@@ -467,6 +467,32 @@ impl Config {
         let connection = Connection::new(runtime, connection, self.notice_callback.clone());
         Ok(Client::new(connection, client))
     }
+
+    /// Opens a connection to a PostgreSQL database over an arbitrary socket.
+    ///
+    /// All of the settings other than `user`, `password`, `dbname`, `options`, `application_name`, and `ssl_mode` are ignored.
+    pub fn connect_raw<T>(&self, socket: std::net::TcpStream, tls: T) -> Result<Client, Error>
+    where
+        T: TlsConnect<Socket> + Send + 'static,
+        T::Stream: Send,
+        T::Future: Send,
+    {
+        let runtime = runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap(); // FIXME don't unwrap
+
+        let (client, connection) = runtime.block_on(async {
+            // The socket is registered with the runtime that drives it, which
+            // is why this takes a socket rather than a stream.
+            let socket = Socket::__private_api_from_std(socket)?;
+
+            self.config.connect_raw(socket, tls).await
+        })?;
+
+        let connection = Connection::new(runtime, connection, self.notice_callback.clone());
+        Ok(Client::new(connection, client))
+    }
 }
 
 impl FromStr for Config {

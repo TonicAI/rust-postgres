@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::net;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::thread;
@@ -528,4 +529,19 @@ fn is_closed() {
     assert!(!client.is_closed());
     client.check_connection().unwrap_err();
     assert!(client.is_closed());
+}
+
+#[test]
+fn connect_raw() {
+    let socket = net::TcpStream::connect("localhost:5433").unwrap();
+
+    let mut client = "user=postgres"
+        .parse::<Config>()
+        .unwrap()
+        .connect_raw(socket, NoTls)
+        .unwrap();
+
+    let rows = client.query("SELECT $1::TEXT", &[&"hello"]).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, &str>(0), "hello");
 }
