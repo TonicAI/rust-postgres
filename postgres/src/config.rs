@@ -346,6 +346,24 @@ impl Config {
         self.config.get_keepalives()
     }
 
+    /// Ignores a `BindComplete` arriving in a row stream after the one that
+    /// answered the `Bind`, rather than failing the query.
+    ///
+    /// A server conforming to the protocol answers each `Bind` with exactly one
+    /// `BindComplete`, so this is off by default and a repeat is reported as an
+    /// unexpected message. Enable it only for a server known to send a second
+    /// one, and note that it costs the query the ability to detect that kind of
+    /// desynchronisation.
+    pub fn tolerate_duplicate_bind_complete(&mut self, tolerate: bool) -> &mut Config {
+        self.config.tolerate_duplicate_bind_complete(tolerate);
+        self
+    }
+
+    /// Reports whether a duplicate `BindComplete` is ignored.
+    pub fn get_tolerate_duplicate_bind_complete(&self) -> bool {
+        self.config.get_tolerate_duplicate_bind_complete()
+    }
+
     /// Sets the amount of idle time before a keepalive packet is sent on the connection.
     ///
     /// This is ignored for Unix domain sockets, or if the `keepalives` option is disabled. Defaults to 2 hours.

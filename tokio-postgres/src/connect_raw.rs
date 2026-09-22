@@ -120,6 +120,7 @@ where
         config.ssl_negotiation,
         process_id,
         secret_key,
+        config.tolerate_duplicate_bind_complete,
     );
     let connection = Connection::new(stream.inner, stream.delayed, parameters, receiver);
 

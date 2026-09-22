@@ -235,6 +235,7 @@ pub struct Config {
     pub(crate) target_session_attrs: TargetSessionAttrs,
     pub(crate) channel_binding: ChannelBinding,
     pub(crate) load_balance_hosts: LoadBalanceHosts,
+    pub(crate) tolerate_duplicate_bind_complete: bool,
 }
 
 impl Default for Config {
@@ -269,7 +270,26 @@ impl Config {
             target_session_attrs: TargetSessionAttrs::Any,
             channel_binding: ChannelBinding::Prefer,
             load_balance_hosts: LoadBalanceHosts::Disable,
+            tolerate_duplicate_bind_complete: false,
         }
+    }
+
+    /// Ignores a `BindComplete` arriving in a row stream after the one that
+    /// answered the `Bind`, rather than failing the query.
+    ///
+    /// A server conforming to the protocol answers each `Bind` with exactly one
+    /// `BindComplete`, so this is off by default and a repeat is reported as an
+    /// unexpected message. Enable it only for a server known to send a second
+    /// one, and note that it costs the query the ability to detect that kind of
+    /// desynchronisation.
+    pub fn tolerate_duplicate_bind_complete(&mut self, tolerate: bool) -> &mut Config {
+        self.tolerate_duplicate_bind_complete = tolerate;
+        self
+    }
+
+    /// Reports whether a duplicate `BindComplete` is ignored.
+    pub fn get_tolerate_duplicate_bind_complete(&self) -> bool {
+        self.tolerate_duplicate_bind_complete
     }
 
     /// Sets the user to authenticate with.
@@ -783,7 +803,11 @@ impl fmt::Debug for Config {
             .field("port", &self.port)
             .field("connect_timeout", &self.connect_timeout)
             .field("tcp_user_timeout", &self.tcp_user_timeout)
-            .field("keepalives", &self.keepalives);
+            .field("keepalives", &self.keepalives)
+            .field(
+                "tolerate_duplicate_bind_complete",
+                &self.tolerate_duplicate_bind_complete,
+            );
 
         #[cfg(not(target_arch = "wasm32"))]
         {

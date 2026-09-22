@@ -56,6 +56,7 @@ where
         statement,
         responses,
         rows_affected: None,
+        tolerate_duplicate_bind_complete: client.tolerate_duplicate_bind_complete(),
     })
 }
 
@@ -93,6 +94,7 @@ where
                     statement: Statement::unnamed(vec![], vec![]),
                     responses,
                     rows_affected: None,
+                    tolerate_duplicate_bind_complete: client.tolerate_duplicate_bind_complete(),
                 });
             }
             Message::RowDescription(row_description) => {
@@ -113,6 +115,7 @@ where
                     statement: Statement::unnamed(vec![], columns),
                     responses,
                     rows_affected: None,
+                    tolerate_duplicate_bind_complete: client.tolerate_duplicate_bind_complete(),
                 });
             }
             _ => return Err(Error::unexpected_message()),
@@ -189,6 +192,7 @@ pub async fn query_portal(
         statement: portal.statement().clone(),
         responses,
         rows_affected: None,
+        tolerate_duplicate_bind_complete: client.tolerate_duplicate_bind_complete(),
     })
 }
 
@@ -338,6 +342,7 @@ pin_project! {
         statement: Statement,
         responses: Responses,
         rows_affected: Option<u64>,
+        tolerate_duplicate_bind_complete: bool,
     }
 }
 
@@ -354,6 +359,7 @@ impl Stream for RowStream {
                 Message::CommandComplete(body) => {
                     *this.rows_affected = Some(extract_row_affected(&body)?);
                 }
+                Message::BindComplete if *this.tolerate_duplicate_bind_complete => {}
                 Message::EmptyQueryResponse | Message::PortalSuspended => {}
                 Message::ReadyForQuery(_) => return Poll::Ready(None),
                 _ => return Poll::Ready(Some(Err(Error::unexpected_message()))),

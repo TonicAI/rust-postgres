@@ -434,6 +434,17 @@ impl Client {
         self.connection.block_on(self.client.prepare(query))
     }
 
+    /// Like `prepare`, but parses into the unnamed statement rather than a
+    /// generated name.
+    ///
+    /// The unnamed statement is destroyed by the next `Parse` or simple `Query`
+    /// on the same connection, so the returned `Statement` is valid only until
+    /// then. It must not be cached, reused for a later execution, or held across
+    /// another prepare on that connection.
+    pub fn prepare_unnamed(&mut self, query: &str) -> Result<Statement, Error> {
+        self.connection.block_on(self.client.prepare_unnamed(query))
+    }
+
     /// Like `prepare`, but allows the types of query parameters to be explicitly specified.
     ///
     /// The list of types may be smaller than the number of parameters - the types of the remaining parameters will be

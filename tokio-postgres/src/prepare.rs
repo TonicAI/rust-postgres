@@ -64,6 +64,29 @@ pub async fn prepare(
     types: &[Type],
 ) -> Result<Statement, Error> {
     let name = format!("s{}", NEXT_ID.fetch_add(1, Ordering::SeqCst));
+    prepare_with_name(client, name, query, types).await
+}
+
+/// Prepares into the unnamed statement instead of a generated name.
+///
+/// The unnamed statement is destroyed by the next `Parse` or simple `Query` on
+/// the same connection, so the returned `Statement` is valid only until then. It
+/// must not be cached, reused for a later execution, or held across another
+/// prepare on that connection.
+pub async fn prepare_unnamed(
+    client: &Arc<InnerClient>,
+    query: &str,
+    types: &[Type],
+) -> Result<Statement, Error> {
+    prepare_with_name(client, String::new(), query, types).await
+}
+
+async fn prepare_with_name(
+    client: &Arc<InnerClient>,
+    name: String,
+    query: &str,
+    types: &[Type],
+) -> Result<Statement, Error> {
     let buf = encode(client, &name, query, types)?;
     let mut responses = client.send(RequestMessages::Single(FrontendMessage::Raw(buf)))?;
 

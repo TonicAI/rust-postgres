@@ -90,9 +90,17 @@ pub struct InnerClient {
 
     /// A buffer to use when writing out postgres commands.
     buffer: Mutex<BytesMut>,
+
+    /// Whether to ignore a `BindComplete` arriving in a row stream after the one
+    /// that answered the `Bind`, rather than failing the query.
+    tolerate_duplicate_bind_complete: bool,
 }
 
 impl InnerClient {
+    pub fn tolerate_duplicate_bind_complete(&self) -> bool {
+        self.tolerate_duplicate_bind_complete
+    }
+
     pub fn send(&self, messages: RequestMessages) -> Result<Responses, Error> {
         let (sender, receiver) = mpsc::channel(1);
         let request = Request { messages, sender };
@@ -195,12 +203,14 @@ impl Client {
         ssl_negotiation: SslNegotiation,
         process_id: i32,
         secret_key: i32,
+        tolerate_duplicate_bind_complete: bool,
     ) -> Client {
         Client {
             inner: Arc::new(InnerClient {
                 sender,
                 cached_typeinfo: Default::default(),
                 buffer: Default::default(),
+                tolerate_duplicate_bind_complete,
             }),
             #[cfg(feature = "runtime")]
             socket_config: None,
@@ -238,6 +248,17 @@ impl Client {
         parameter_types: &[Type],
     ) -> Result<Statement, Error> {
         prepare::prepare(&self.inner, query, parameter_types).await
+    }
+
+    /// Like `prepare`, but parses into the unnamed statement rather than a
+    /// generated name.
+    ///
+    /// The unnamed statement is destroyed by the next `Parse` or simple `Query`
+    /// on the same connection, so the returned `Statement` is valid only until
+    /// then. It must not be cached, reused for a later execution, or held across
+    /// another prepare on that connection.
+    pub async fn prepare_unnamed(&self, query: &str) -> Result<Statement, Error> {
+        prepare::prepare_unnamed(&self.inner, query, &[]).await
     }
 
     /// Executes a statement, returning a vector of the resulting rows.
