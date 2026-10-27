@@ -3,7 +3,7 @@ use crate::tls::TlsConnect;
 use crate::{Error, connect_tls};
 use bytes::BytesMut;
 use postgres_protocol::message::frontend;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub async fn cancel_query_raw<S, T>(
     stream: S,
@@ -26,6 +26,13 @@ where
     stream.write_all(&buf).await.map_err(Error::io)?;
     stream.flush().await.map_err(Error::io)?;
     stream.shutdown().await.map_err(Error::io)?;
+
+    // The server closes the connection once it has handled the request, and until then the
+    // request may still be in flight. One that lands after the query it was meant for has
+    // finished cancels the next query the client sends instead, so wait for the close, as libpq
+    // does. Nothing is expected to arrive, and an error counts as the close: the request has been
+    // sent either way.
+    let _ = stream.read(&mut [0; 1]).await;
 
     Ok(())
 }

@@ -21,8 +21,11 @@ impl CancelToken {
     /// Attempts to cancel the in-progress query on the connection associated
     /// with this `CancelToken`.
     ///
-    /// The server provides no information about whether a cancellation attempt was successful or not. An error will
-    /// only be returned if the client was unable to connect to the database.
+    /// The server provides no information about whether a cancellation attempt was successful or not. It closes the
+    /// connection once it has handled the request, though, and this returns only then, so that a request still in
+    /// flight cannot cancel a query sent after this returns instead of the one it was meant for. An error will only be
+    /// returned if the client was unable to connect to the database, or if the server had not closed the connection
+    /// by the time the configured `connect_timeout` ran out, in which case the request may still land late.
     ///
     /// Cancellation is inherently racy. There is no guarantee that the
     /// cancellation request will reach the server before the query terminates
@@ -47,7 +50,7 @@ impl CancelToken {
     }
 
     /// Like `cancel_query`, but uses a stream which is already connected to the server rather than opening a new
-    /// connection itself.
+    /// connection itself. It waits for the server to close the stream with no time limit.
     pub async fn cancel_query_raw<S, T>(&self, stream: S, tls: T) -> Result<(), Error>
     where
         S: AsyncRead + AsyncWrite + Unpin,
