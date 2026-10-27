@@ -762,6 +762,44 @@ async fn copy_in_error() {
 }
 
 #[tokio::test]
+async fn copy_in_rejected_before_finish() {
+    let client = connect("user=postgres").await;
+
+    client
+        .batch_execute("CREATE TEMPORARY TABLE foo (id INTEGER CHECK (id < 0))")
+        .await
+        .unwrap();
+
+    let mut rows = BytesMut::new();
+    for i in 1..=1_000 {
+        writeln!(rows, "{i}").unwrap();
+    }
+    let rows = rows.freeze();
+
+    {
+        let mut sink = pin!(client.copy_in("COPY foo FROM STDIN").await.unwrap());
+        // The server rejects the first row and discards everything after it, so a send has to
+        // fail well before the deadline rather than the error waiting for `finish`.
+        let deadline = time::Instant::now() + Duration::from_secs(10);
+        let error = loop {
+            assert!(
+                time::Instant::now() < deadline,
+                "the rejection did not stop the sends"
+            );
+            if let Err(error) = sink.send(rows.clone()).await {
+                break error;
+            }
+        };
+        assert_eq!(error.code(), Some(&SqlState::CHECK_VIOLATION));
+
+        let error = sink.finish().await.unwrap_err();
+        assert_eq!(error.code(), Some(&SqlState::CHECK_VIOLATION));
+    }
+
+    client.batch_execute("SELECT 1").await.unwrap();
+}
+
+#[tokio::test]
 async fn copy_out() {
     let client = connect("user=postgres").await;
 

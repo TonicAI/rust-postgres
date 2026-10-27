@@ -3,7 +3,7 @@ use std::net;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio_postgres::NoTls;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::Type;
@@ -270,6 +270,37 @@ fn copy_in_abort() {
         .unwrap();
 
     assert_eq!(rows.len(), 0);
+}
+
+#[test]
+fn copy_in_rejected_before_finish() {
+    let mut client = Client::connect("host=localhost port=5433 user=postgres", NoTls).unwrap();
+
+    client
+        .simple_query("CREATE TEMPORARY TABLE foo (id INT CHECK (id < 0))")
+        .unwrap();
+
+    let rows = (1..=1_000).map(|i| format!("{i}\n")).collect::<String>();
+    let mut writer = client.copy_in("COPY foo FROM stdin").unwrap();
+    // The server rejects the first row and discards everything after it, so a write has to fail
+    // well before the deadline rather than the error waiting for `finish`.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let error = loop {
+        assert!(
+            Instant::now() < deadline,
+            "the rejection did not stop the writes"
+        );
+        if let Err(error) = writer.write_all(rows.as_bytes()) {
+            break error;
+        }
+    };
+    let error = error.into_inner().unwrap().downcast::<Error>().unwrap();
+    assert_eq!(error.code(), Some(&SqlState::CHECK_VIOLATION));
+
+    let error = writer.finish().unwrap_err();
+    assert_eq!(error.code(), Some(&SqlState::CHECK_VIOLATION));
+
+    client.simple_query("SELECT 1").unwrap();
 }
 
 #[test]

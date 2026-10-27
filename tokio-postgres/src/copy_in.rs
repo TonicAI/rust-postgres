@@ -1,6 +1,7 @@
 use crate::client::{InnerClient, Responses};
 use crate::codec::FrontendMessage;
 use crate::connection::RequestMessages;
+use crate::error::DbError;
 use crate::query::extract_row_affected;
 use crate::{Error, Statement, query, slice_iter};
 use bytes::{Buf, BufMut, BytesMut};
@@ -74,6 +75,11 @@ pin_project! {
     ///
     /// The copy *must* be explicitly completed via the `Sink::close` or `finish` methods. If it is
     /// not, the copy will be aborted.
+    ///
+    /// If the server rejects the copy while data is still being sent, for example because a row
+    /// violates a constraint, the next `poll_ready` (and so the next `send`) returns its error.
+    /// The server discards any data that arrives after the rejection, so there is no point in
+    /// sending the rest.
     #[project(!Unpin)]
     pub struct CopyInSink<T> {
         #[pin]
@@ -81,6 +87,9 @@ pin_project! {
         responses: Responses,
         buf: BytesMut,
         state: SinkState,
+        // The error the server rejected the copy with before it was finished, kept so that
+        // `finish` reports it as well.
+        rejection: Option<DbError>,
         _p2: PhantomData<T>,
     }
 }
@@ -91,6 +100,9 @@ where
 {
     /// A poll-based version of `finish`.
     pub fn poll_finish(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<u64, Error>> {
+        if let Some(rejection) = &self.rejection {
+            return Poll::Ready(Err(Error::db_error(rejection.clone())));
+        }
         loop {
             match self.state {
                 SinkState::Active => {
@@ -137,10 +149,19 @@ where
     type Error = Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        self.project()
-            .sender
-            .poll_ready(cx)
-            .map_err(|_| Error::closed())
+        let this = self.project();
+
+        // Until the copy is finished, the server answers only to reject it.
+        if let Poll::Ready(response) = this.responses.poll_next(cx) {
+            let error = match response {
+                Ok(_) => Error::unexpected_message(),
+                Err(error) => error,
+            };
+            *this.rejection = error.as_db_error().cloned();
+            return Poll::Ready(Err(error));
+        }
+
+        this.sender.poll_ready(cx).map_err(|_| Error::closed())
     }
 
     fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Error> {
@@ -220,6 +241,7 @@ where
         responses,
         buf: BytesMut::new(),
         state: SinkState::Active,
+        rejection: None,
         _p2: PhantomData,
     })
 }

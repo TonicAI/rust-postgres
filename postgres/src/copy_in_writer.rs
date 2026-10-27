@@ -37,8 +37,16 @@ impl<'a> CopyInWriter<'a> {
             return Ok(());
         }
 
-        self.connection
-            .block_on(self.sink.pinned().send(self.buf.split().freeze()))
+        let data = self.buf.split().freeze();
+        let mut sink = self.sink.pinned();
+        self.connection.block_on(async move {
+            // The runtime notices that the socket has something to read only when it parks,
+            // and a send that never waits on the socket never parks it. Yielding parks it for
+            // a moment, so a rejection the server sent while the copy was under way reaches
+            // the sink, which then fails this send instead of leaving it to `finish`.
+            tokio::task::yield_now().await;
+            sink.send(data).await
+        })
     }
 }
 

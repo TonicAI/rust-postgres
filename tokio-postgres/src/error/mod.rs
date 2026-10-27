@@ -451,9 +451,13 @@ impl Error {
     #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn db(error: ErrorResponseBody) -> Error {
         match DbError::parse(&mut error.fields()) {
-            Ok(e) => Error::new(Kind::Db, Some(Box::new(e))),
+            Ok(e) => Error::db_error(e),
             Err(e) => Error::new(Kind::Parse, Some(Box::new(e))),
         }
+    }
+
+    pub(crate) fn db_error(error: DbError) -> Error {
+        Error::new(Kind::Db, Some(Box::new(error)))
     }
 
     pub(crate) fn parse(e: io::Error) -> Error {
